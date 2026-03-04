@@ -204,9 +204,37 @@ clear_entities() {
 # ==========================================
 # UI and Scoring Functions
 # ==========================================
-draw_score() {
-    # Print the scoreboard perfectly centered on the top wall (Row 1, Col 30)
-    printf "\e[1;83H\e[1;33;40m[ ${p1_piece}: ${p1_score} | ${p2_piece}: ${p2_score} ]${color_off}"
+# ==========================================
+# UI and Scoring Functions
+# ==========================================
+draw_side_panel() {
+    local sp_start=82
+    local sp_end=106
+    
+    # Draw the Top and Bottom borders of the side panel
+    for (( i=sp_start; i<=sp_end; i++ )); do
+        printf "\e[1;${i}H${colors[$wall]}=${color_off}"
+        printf "\e[${arena_height};${i}H${colors[$wall]}=${color_off}"
+    done
+    
+    # Draw the Left and Right borders of the side panel
+    for (( i=1; i<=arena_height; i++ )); do
+        printf "\e[${i};${sp_start}H${colors[$wall]}|${color_off}"
+        printf "\e[${i};${sp_end}H${colors[$wall]}|${color_off}"
+    done
+
+    # Print the Content inside the box
+    printf "\e[3;85H\e[1;33m   SCOREBOARD   \e[0m"
+    # The %-10s means "Cut the name if it is longer than 10 letters so it fits!"
+    printf "\e[5;85H\e[1;36m%-10s: %2d\e[0m" "${p1_name:0:10}" "$p1_score"
+    printf "\e[6;85H\e[1;35m%-10s: %2d\e[0m" "${p2_name:0:10}" "$p2_score"
+    
+    printf "\e[9;85H\e[1;33m    CONTROLS    \e[0m"
+    printf "\e[11;85H P1: W,A,S,D"
+    printf "\e[12;85H P2: I,J,K,L"
+    
+    printf "\e[15;85H\e[1;32m [P] Pause/Save \e[0m"
+    printf "\e[16;85H\e[1;31m [Q] Quit Match \e[0m"
 }
 
 show_goal() {
@@ -238,13 +266,27 @@ show_goal() {
     
     # Redraw the clean arena and the new score
     draw_arena
-    draw_score
+    draw_side_panel
 }
-#draw score
-draw_score
 
-# 3. Call the draw function after the intro finishes to put them on the field!
-draw_entities
+reset_positions() {
+    p1_y=$(( arena_height / 2 )); p1_x=5
+    p2_y=$(( arena_height / 2 )); p2_x=$(( arena_width - 5 ))
+    ball_y=$(( arena_height / 2 )); ball_x=$(( arena_width / 2 ))
+    ball_dx=1; ball_dy=1
+}
+
+save_game() {
+    # We use basic file manipulation (>) to write our variables into savegame.ssc
+    echo "p1_name=\"$p1_name\"" > "$save_file"
+    echo "p2_name=\"$p2_name\"" >> "$save_file"
+    echo "p1_score=$p1_score" >> "$save_file"
+    echo "p2_score=$p2_score" >> "$save_file"
+    echo "p1_y=$p1_y" >> "$save_file"; echo "p1_x=$p1_x" >> "$save_file"
+    echo "p2_y=$p2_y" >> "$save_file"; echo "p2_x=$p2_x" >> "$save_file"
+    echo "ball_y=$ball_y" >> "$save_file"; echo "ball_x=$ball_x" >> "$save_file"
+    echo "ball_dx=$ball_dx" >> "$save_file"; echo "ball_dy=$ball_dy" >> "$save_file"
+}
 
 # ==========================================
 # Main Game Loop (Upgraded)
@@ -271,8 +313,13 @@ game_loop() {
                 k|K) [[ $((p2_y + 1)) -lt $(($arena_height - 1)) ]] && ((p2_y++)) ;; 
                 j|J) [[ $p2_x -gt $((arena_width / 2 + 1)) ]] && ((p2_x--)) ;; 
                 l|L) [[ $p2_x -lt $((arena_width - 2)) ]] && ((p2_x++)) ;; 
-                
-                q|Q) break 2 ;;
+                p|P)
+                    save_game
+                    break 2
+                    ;;               
+                q|Q) 
+                    rm -f "$save_file"
+                    break 2 ;;
             esac
         done
 # --- BALL PHYSICS ---
@@ -324,5 +371,83 @@ game_loop() {
         draw_entities
     done
 }
-#call game-loop
-game_loop
+
+
+# ==========================================
+# Main Menu System
+# ==========================================
+start_new_game() {
+    printf "${clr_screen}"
+    draw_arena
+    printf "\e[5;30H\e[1;32m=== NEW GAME ===\e[0m"
+    
+    # Temporarily turn the typing cursor and echo back ON so they can type their names
+    printf "${curs_on}"; stty echo
+    
+    printf "\e[8;30H Enter Player 1 Name: "
+    read p1_name
+    p1_name=${p1_name:-"Player 1"} # Default name if left blank
+    
+    printf "\e[10;30H Enter Player 2 Name: "
+    read p2_name
+    p2_name=${p2_name:-"Player 2"}
+    
+    # Turn them back OFF for the game
+    printf "${curs_off}"; stty -echo
+    
+    # Set scores to 0, reset the field, and start!
+    p1_score=0; p2_score=0
+    reset_positions
+    
+    draw_arena
+    draw_side_panel
+    game_loop
+}
+
+main_menu() {
+    while true; do
+        printf "${clr_screen}"
+        draw_arena
+        printf "\e[5;30H\e[1;33m==========================\e[0m"
+        printf "\e[6;30H\e[1;33m       SHELL SOCCER       \e[0m"
+        printf "\e[7;30H\e[1;33m==========================\e[0m"
+        
+        printf "\e[10;32H 1. New Game "
+        printf "\e[12;32H 2. Resume Paused Game "
+        printf "\e[14;32H 3. Leaderboard "
+        printf "\e[16;32H 4. Quit App "
+        
+        printf "\e[19;30H Select an option (1-4): "
+        
+        # Wait for them to press 1, 2, 3, or 4
+        read -rsn1 choice
+        case "$choice" in
+            1) 
+                start_new_game 
+                ;;
+            2) 
+                # Check if the save file exists
+                if [[ -f "$save_file" ]]; then
+                    source "$save_file"   # Load the saved variables!
+                    draw_arena
+                    draw_side_panel
+                    game_loop
+                else
+                    printf "\e[12;55H\e[1;31mNo saved game found!\e[0m"
+                    sleep 2
+                fi
+                ;;
+            3)
+                # Placeholder for Step 9
+                printf "\e[14;55H\e[1;36mLeaderboard coming next!\e[0m"
+                sleep 2
+                ;;
+            4)
+                # Quit the App
+                break 
+                ;;
+        esac
+    done
+}
+
+main_menu
