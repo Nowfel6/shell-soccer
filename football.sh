@@ -11,7 +11,7 @@ _path=$(dirname "$0")
 # Files for Sir's Conditions (Save/Resume & Leaderboard)
 score_file="$_path/scores.ssc"
 save_file="$_path/savegame.ssc"
-
+profiles_file="$_path/profiles.ssc"
 # Game pieces (We make them 2 characters wide so they look square in the terminal)
 p1_piece="P1"
 p2_piece="P2"
@@ -142,9 +142,6 @@ show_intro() {
     # The moment they press a key, redraw the empty arena to "vanish" the text
     draw_arena
 }
-
-# 2. Call the intro function
-show_intro
 
 # ==========================================
 # Game State Variables (Starting Positions)
@@ -288,6 +285,52 @@ save_game() {
     echo "ball_dx=$ball_dx" >> "$save_file"; echo "ball_dy=$ball_dy" >> "$save_file"
 }
 
+
+# ==========================================
+# Match Recording System
+# ==========================================
+record_match() {
+    # If someone played against themselves, don't record stats!
+    if [[ "$p1_name" == "$p2_name" ]]; then return; fi
+
+    local p1_db p2_db
+    local p1_pass p1_w p1_l p1_d
+    local p2_pass p2_w p2_l p2_d
+
+    # 1. Extract their current stats from the database
+    p1_db=$(grep "^${p1_name}," "$profiles_file")
+    p2_db=$(grep "^${p2_name}," "$profiles_file")
+
+    # 2. Split the text into variables (Password, Wins, Losses, Draws)
+    # We use ${var:-0} to make sure it defaults to 0 if the file is empty!
+    p1_pass=$(echo "$p1_db" | cut -d',' -f2); p1_w=$(echo "$p1_db" | cut -d',' -f3); p1_w=${p1_w:-0}
+    p1_l=$(echo "$p1_db" | cut -d',' -f4); p1_l=${p1_l:-0}; p1_d=$(echo "$p1_db" | cut -d',' -f5); p1_d=${p1_d:-0}
+    
+    p2_pass=$(echo "$p2_db" | cut -d',' -f2); p2_w=$(echo "$p2_db" | cut -d',' -f3); p2_w=${p2_w:-0}
+    p2_l=$(echo "$p2_db" | cut -d',' -f4); p2_l=${p2_l:-0}; p2_d=$(echo "$p2_db" | cut -d',' -f5); p2_d=${p2_d:-0}
+
+    # 3. Determine the Outcome!
+    if [[ $p1_score -gt $p2_score ]]; then
+        ((p1_w++)); ((p2_l++))   # P1 Wins, P2 Loses
+    elif [[ $p2_score -gt $p1_score ]]; then
+        ((p2_w++)); ((p1_l++))   # P2 Wins, P1 Loses
+    else
+        ((p1_d++)); ((p2_d++))   # Draw
+    fi
+
+    # 4. Remove the old rows from the database using grep -v (invert match)
+    grep -v -e "^${p1_name}," -e "^${p2_name}," "$profiles_file" > "$_path/tmp.ssc"
+    mv "$_path/tmp.ssc" "$profiles_file"
+
+    # 5. Append their updated rows back into the database
+    echo "${p1_name},${p1_pass},${p1_w},${p1_l},${p1_d}" >> "$profiles_file"
+    echo "${p2_name},${p2_pass},${p2_w},${p2_l},${p2_d}" >> "$profiles_file"
+
+    # 6. Show a message on the screen
+    printf "\e[10;30H\e[1;37;44m  MATCH RESULTS RECORDED!  \e[0m"
+    sleep 2
+}
+
 # ==========================================
 # Main Game Loop (Upgraded)
 # ==========================================
@@ -317,7 +360,9 @@ game_loop() {
                     save_game
                     break 2
                     ;;               
-                q|Q) 
+                q|Q)
+                    clear_entities
+                    record_match 
                     rm -f "$save_file"
                     break 2 ;;
             esac
@@ -372,6 +417,63 @@ game_loop() {
     done
 }
 
+# ==========================================
+# Player Profile & Login System
+# ==========================================
+authenticate_player() {
+    local player_num="$1"   # Will be 1 or 2
+    local user pass db_pass
+
+    while true; do
+        printf "\e[5;30H\e[1;32m=== PLAYER $player_num LOGIN ===\e[0m"
+        
+        printf "${curs_on}"; stty echo
+        printf "\e[8;30H Enter Username: "
+        read user
+        
+        # Don't let them leave it blank!
+        if [[ -z "$user" ]]; then continue; fi
+
+        # SEARCH THE DATABASE: Check if the username exists in profiles.ssc
+        if grep -q "^${user}," "$profiles_file" 2>/dev/null; then
+            # --- EXISTING USER LOGIN ---
+            printf "\e[10;30H Welcome back! Enter Password: "
+            stty -echo; read pass; stty echo   # -echo hides the password while typing!
+            
+            # Extract the actual password from the database to compare
+            db_pass=$(grep "^${user}," "$profiles_file" | cut -d',' -f2)
+            
+            if [[ "$pass" == "$db_pass" ]]; then
+                printf "\e[12;30H\e[1;32m Login Successful!\e[0m"
+                sleep 1
+                break
+            else
+                printf "\e[12;30H\e[1;31m Wrong Password! Try again.\e[0m"
+                sleep 2
+            fi
+        else
+            # --- NEW USER REGISTRATION ---
+            printf "\e[10;30H New Player! Create a Password: "
+            stty -echo; read pass; stty echo
+            
+            # Save them to the database (Username, Password, 0 Wins)
+            echo "${user},${pass},0,0,0" >> "$profiles_file"
+            printf "\e[12;30H\e[1;32m Registered & Logged In!\e[0m"
+            sleep 1
+            break
+        fi
+    done
+    
+    # Turn off the typing cursor again for the game
+    printf "${curs_off}"; stty -echo
+    
+    # Assign the logged-in user to the correct global variable
+    if [[ "$player_num" == "1" ]]; then
+        p1_name="$user"
+    else
+        p2_name="$user"
+    fi
+}
 
 # ==========================================
 # Main Menu System
@@ -379,22 +481,10 @@ game_loop() {
 start_new_game() {
     printf "${clr_screen}"
     draw_arena
-    printf "\e[5;30H\e[1;32m=== NEW GAME ===\e[0m"
-    
-    # Temporarily turn the typing cursor and echo back ON so they can type their names
-    printf "${curs_on}"; stty echo
-    
-    printf "\e[8;30H Enter Player 1 Name: "
-    read p1_name
-    p1_name=${p1_name:-"Player 1"} # Default name if left blank
-    
-    printf "\e[10;30H Enter Player 2 Name: "
-    read p2_name
-    p2_name=${p2_name:-"Player 2"}
-    
-    # Turn them back OFF for the game
-    printf "${curs_off}"; stty -echo
-    
+    authenticate_player 1
+    printf "${clr_screen}"
+    draw_arena
+    authenticate_player 2   
     # Set scores to 0, reset the field, and start!
     p1_score=0; p2_score=0
     reset_positions
@@ -402,6 +492,35 @@ start_new_game() {
     draw_arena
     draw_side_panel
     game_loop
+}
+
+show_leaderboard() {
+    printf "${clr_screen}"
+    draw_arena
+    printf "\e[3;20H\e[1;33m================================================\e[0m"
+    printf "\e[4;20H\e[1;33m           GLOBAL LEADERBOARD (TOP 10)          \e[0m"
+    printf "\e[5;20H\e[1;33m================================================\e[0m"
+    
+    # Table Header
+    printf "\e[7;20H\e[1;37m %-15s | %-6s | %-6s | %-6s \e[0m" "USERNAME" "WINS" "LOSSES" "DRAWS"
+    printf "\e[8;20H------------------------------------------------"
+    
+    local row=10
+    
+    if [[ -f "$profiles_file" ]]; then
+        # MAGIC SORT COMMAND: Sort by column 3 (Wins) numerically, in reverse (highest first)
+        sort -t',' -k3,3nr "$profiles_file" | head -n 10 | while IFS=',' read -r u p w l d; do
+            # Provide defaults of 0 just in case older accounts don't have losses/draws saved yet
+            w=${w:-0}; l=${l:-0}; d=${d:-0}
+            printf "\e[${row};20H\e[1;36m %-15s \e[1;37m| \e[1;32m%-6s \e[1;37m| \e[1;31m%-6s \e[1;37m| \e[1;33m%-6s \e[0m" "${u:0:15}" "$w" "$l" "$d"
+            ((row++))
+        done
+    else
+        printf "\e[12;30H\e[1;31m No players registered yet! \e[0m"
+    fi
+    
+    printf "\e[18;20H\e[1;32m Press M  to return to Main Menu... \e"
+    read -rsn1 key
 }
 
 main_menu() {
@@ -427,6 +546,7 @@ main_menu() {
                 ;;
             2) 
                 # Check if the save file exists
+              
                 if [[ -f "$save_file" ]]; then
                     source "$save_file"   # Load the saved variables!
                     draw_arena
@@ -439,7 +559,7 @@ main_menu() {
                 ;;
             3)
                 # Placeholder for Step 9
-                printf "\e[14;55H\e[1;36mLeaderboard coming next!\e[0m"
+                show_leaderboard
                 sleep 2
                 ;;
             4)
@@ -449,5 +569,5 @@ main_menu() {
         esac
     done
 }
-
+show_intro
 main_menu
