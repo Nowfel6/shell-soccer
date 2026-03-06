@@ -11,7 +11,11 @@
 ## 📸 Screenshots
 
 <!-- Upload images to your repository and link them here -->
-![Main](screenshot/Screenshot%2026-03-07%041730.png)
+![Main](screenshot/Screenshot%202026-03-07%20041730.png)
+![Main Menu](screenshot/Screenshot%202026-03-07%20040037.png)
+![Main Menu](screenshot/Screenshot%202026-03-07%20040931.png)
+![Main Menu](screenshot/Screenshot%202026-03-07%20040134.png)
+![Main Menu](screenshot/Screenshot%202026-03-07%20040800.png)
 
 ---
 
