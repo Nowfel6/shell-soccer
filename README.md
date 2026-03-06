@@ -11,7 +11,7 @@
 ## 📸 Screenshots
 
 <!-- Upload images to your repository and link them here -->
-![Main Menu](https://via.placeholder.com/800x400?text=ShellSoccer+Main+Menu+Screenshot)
+![Main](screenshot/Screenshot%2026-03-07%041730.png)
 
 ---
 
