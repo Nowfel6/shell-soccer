@@ -39,7 +39,7 @@
 
 1.  **Clone the repository**
     ```bash
-    git clone https://github.com/YOUR_USERNAME/ShellSoccer.git
+    git clone https://github.com/Nowfel6/ShellSoccer.git
     cd ShellSoccer
     ```
 
